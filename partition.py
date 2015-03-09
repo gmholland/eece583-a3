@@ -279,7 +279,7 @@ def partition(*args):
     """Function called when pressing Partition button.
 
     Partitions circuit using Kernighan-Lin."""
-    print("partition")
+    # print("partition")
 
     # create random initial partition
     initialize_partition()
@@ -291,18 +291,20 @@ def partition(*args):
     cutsize_text.set(layout.cutsize)
     logging.info('initial cutsize = {}'.format(layout.cutsize))
 
-    # intialize best partition and mincut
-    layout.mincut = layout.cutsize
+    # intialize best partition, mincut and prev mincut
     layout.best_partition = save_partition()
+    layout.prev_mincut = layout.mincut = layout.cutsize
+
+    partition_btn.state(['disabled'])
 
     gui.draw_canvas()
 
-    next_btn.state(['!disabled'])
+    root.after(100, KL_inner)
 
 
 def initialize_partition():
     """Randomly partition the nodes equally"""
-    print("initialize_partition")
+    # print("initialize_partition")
 
     # Generate a random list of node IDs
     rand_node_IDs = random.sample(range(layout.ncells), layout.ncells)
@@ -323,13 +325,6 @@ def initialize_partition():
     #         node.block_ID = 1
 
 
-def KL_reset():
-    """Reset partition to best seen during pass."""
-    reset_saved_partition(layout.best_partition)
-
-    gui.draw_canvas()
-
-
 def set_initial_gains():
     """Set initial gain values for each node.
     
@@ -338,7 +333,7 @@ def set_initial_gains():
         - unlocks all nodes
         - adds nodes to blocks based on node.block_ID
     """
-    print('set_initial_gains')
+    # print('set_initial_gains')
 
     # initialize net distributions
     layout.set_net_distribution()
@@ -360,7 +355,7 @@ def set_initial_gains():
 
 
 def KL_inner():
-    print('KL_inner')
+    # print('KL_inner')
 
     # step 2:
     # - select base node (node with max gain)
@@ -372,7 +367,7 @@ def KL_inner():
 
     # update cutsize
     layout.cutsize -= base_node.gain
-    print('cutsize = ', layout.cutsize)
+    # print('cutsize = ', layout.cutsize)
 
     # if cutsize is the minimum for this pass, save partition
     if layout.cutsize < layout.mincut:
@@ -385,12 +380,33 @@ def KL_inner():
     if layout.block[0].has_unlocked_nodes() or layout.block[1].has_unlocked_nodes():
         root.after(10, KL_inner)
     else:
-        root.after(10, KL_reset)
+        root.after(1000, KL_reset)
+
+
+def KL_reset():
+    """Reset partition to best seen during pass."""
+    print('KL_reset')
+
+    global iteration
+    reset_saved_partition(layout.best_partition)
+
+    gui.draw_canvas()
+
+    print('mincut = {} prev_mincut = {}'.format(layout.mincut, layout.prev_mincut))
+    # continue for up to 6 iterations or until mincut stops improving
+    if iteration < 6 and layout.mincut != layout.prev_mincut:
+        iteration += 1
+        iteration_text.set(iteration)
+        layout.prev_mincut = layout.mincut
+        root.after(1000, KL_inner)
+    else:
+        # enable buttons
+        partition_btn.state(['!disabled'])
 
 
 def select_base_node():
     """Choose node to move based on gain and balance condition and return it."""
-    print('select_base_node')
+    # print('select_base_node')
     # if equal number of nodes in each block
     if layout.block[0].size() == layout.block[1].size():
         # choose node with higher gain
@@ -409,12 +425,12 @@ def select_base_node():
 
     # get node to move
     base_node = layout.block[b].pop_max_gain_node()
-    print('moving {} from block {}'.format(base_node, b))
+    # print('moving {} from block {}'.format(base_node, b))
     return base_node
 
 
 def move_node(node):
-    print('move_node')
+    # print('move_node')
     """Move node to opposite block and update gains."""
     F = node.block_ID # "from" block ID
     T = (node.block_ID + 1) % 2 # "to" block ID
@@ -485,13 +501,16 @@ def reset_saved_partition(partition):
     # update cutsize
     layout.cutsize = layout.mincut
     cutsize_text.set(layout.cutsize)
-    logging.info('best mincut seen for iteration = {}'.format(layout.cutsize))
+    logging.info('iteration {}: best mincut seen = {}'.format(iteration, layout.cutsize))
 
 
 # GUI functions
 class GUI:
     def init_canvas(self):
         """Set canvas to appropriate size."""
+        # clear canvas
+        canvas.delete(ALL)
+
         self.rdim = 25 # rectangle dimensions
         self.node_pad = 5 # padding between node rectangles
         self.x_pad = 50 # padding in x coordinate between partitions
@@ -605,16 +624,22 @@ if __name__ == '__main__':
     partition_btn = ttk.Button(btn_frame, text="Partition", command=partition)
     partition_btn.grid(column=1, row=0, padx=5, pady=5)
     partition_btn.state(['disabled'])
-    next_btn = ttk.Button(btn_frame, text="Run Iteration", command=KL_inner)
-    next_btn.grid(column=2, row=0, padx=5, pady=5)
-    next_btn.state(['disabled'])
 
     # setup stats frame (contains statistics)
     cutsize_text = StringVar()
     cutsize_text.set('-')
-    ttk.Label(stats_frame, text="cutsize:").grid(column=1, row=1)
+
+    iteration = 1
+    iteration_text = StringVar()
+    iteration_text.set(iteration)
+
+    ttk.Label(stats_frame, text="cutsize:").grid(column=1, row=1, sticky=E)
     cutsize_lbl = ttk.Label(stats_frame, textvariable=cutsize_text)
-    cutsize_lbl.grid(column=2, row=1)
+    cutsize_lbl.grid(column=2, row=1, sticky=W)
+
+    ttk.Label(stats_frame, text="iteration:").grid(column=1, row=2, sticky=E)
+    iteration_lbl = ttk.Label(stats_frame, textvariable=iteration_text)
+    iteration_lbl.grid(column=2, row=2, sticky=W)
 
     # run main event loop for gui
     root.mainloop()
