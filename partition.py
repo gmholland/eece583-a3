@@ -229,6 +229,10 @@ class Layout:
         self.block = [Block(pmax), Block(pmax)]
         logging.info('pmax={}'.format(pmax))
 
+        global iteration
+        iteration = 1
+        iteration_text.set(iteration)
+
 
     def get_pmax(self):
         """Return max(number of pins on node(i) for i in layout.netlist"""
@@ -264,6 +268,10 @@ def open_benchmark(*args):
     if not openfilename:
         return
 
+    # setup logfile
+    logfilename = os.path.basename(openfilename) + '.log'
+    logging.basicConfig(filename=logfilename, filemode='w', level=logging.INFO)
+
     logging.info("opened benchmark:{}".format(openfilename))
     filename.set(os.path.basename(openfilename))
     layout.parse_netlist(openfilename)
@@ -279,7 +287,6 @@ def partition(*args):
     """Function called when pressing Partition button.
 
     Partitions circuit using Kernighan-Lin."""
-    # print("partition")
 
     # create random initial partition
     initialize_partition()
@@ -304,7 +311,6 @@ def partition(*args):
 
 def initialize_partition():
     """Randomly partition the nodes equally"""
-    # print("initialize_partition")
 
     # Generate a random list of node IDs
     rand_node_IDs = random.sample(range(layout.ncells), layout.ncells)
@@ -333,7 +339,6 @@ def set_initial_gains():
         - unlocks all nodes
         - adds nodes to blocks based on node.block_ID
     """
-    # print('set_initial_gains')
 
     # initialize net distributions
     layout.set_net_distribution()
@@ -355,7 +360,6 @@ def set_initial_gains():
 
 
 def KL_inner():
-    # print('KL_inner')
 
     # step 2:
     # - select base node (node with max gain)
@@ -367,7 +371,6 @@ def KL_inner():
 
     # update cutsize
     layout.cutsize -= base_node.gain
-    # print('cutsize = ', layout.cutsize)
 
     # if cutsize is the minimum for this pass, save partition
     if layout.cutsize < layout.mincut:
@@ -378,21 +381,19 @@ def KL_inner():
 
     # continue while there are unlocked nodes
     if layout.block[0].has_unlocked_nodes() or layout.block[1].has_unlocked_nodes():
-        root.after(10, KL_inner)
+        root.after(1, KL_inner)
     else:
         root.after(1000, KL_reset)
 
 
 def KL_reset():
     """Reset partition to best seen during pass."""
-    print('KL_reset')
 
     global iteration
     reset_saved_partition(layout.best_partition)
 
     gui.draw_canvas()
 
-    print('mincut = {} prev_mincut = {}'.format(layout.mincut, layout.prev_mincut))
     # continue for up to 6 iterations or until mincut stops improving
     if iteration < 6 and layout.mincut != layout.prev_mincut:
         iteration += 1
@@ -406,7 +407,6 @@ def KL_reset():
 
 def select_base_node():
     """Choose node to move based on gain and balance condition and return it."""
-    # print('select_base_node')
     # if equal number of nodes in each block
     if layout.block[0].size() == layout.block[1].size():
         # choose node with higher gain
@@ -425,12 +425,10 @@ def select_base_node():
 
     # get node to move
     base_node = layout.block[b].pop_max_gain_node()
-    # print('moving {} from block {}'.format(base_node, b))
     return base_node
 
 
 def move_node(node):
-    # print('move_node')
     """Move node to opposite block and update gains."""
     F = node.block_ID # "from" block ID
     T = (node.block_ID + 1) % 2 # "to" block ID
@@ -507,9 +505,13 @@ def reset_saved_partition(partition):
 # GUI functions
 class GUI:
     def init_canvas(self):
-        """Set canvas to appropriate size."""
+        """Initialize canvas, set to appropriate size."""
         # clear canvas
         canvas.delete(ALL)
+
+        # clear statistics
+        iteration_text.set(iteration)
+        cutsize_text.set('-')
 
         self.rdim = 25 # rectangle dimensions
         self.node_pad = 5 # padding between node rectangles
@@ -567,9 +569,6 @@ class GUI:
                 x[node.block_ID] = x1
                 y[node.block_ID] = y2 + self.node_pad
 
-            # Set text on rectangle to node ID
-            #node.set_text('{}({})'.format(node.ID, node.gain))
-
 
     def draw_nets(self):
         """Draw nets in canvas."""
@@ -586,10 +585,6 @@ class GUI:
 if __name__ == '__main__':
     # set random number generator seed 
     random.seed(0)
-
-    # setup logfile
-    logfilename = 'partition.log'
-    logging.basicConfig(filename=logfilename, filemode='w', level=logging.INFO)
 
     # chip layout
     layout = Layout()
