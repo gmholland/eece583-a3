@@ -13,7 +13,7 @@ class Node:
     
     Data attributes:
         ID - Node number, determined from benchmark file
-        block - which block node is assigned to in partition
+        block_ID - block ID of assigned block in partition
         nets - list of nets the node belongs to
         gain - amount cutsize would decrease if node moved to other block
         text_id - canvas ID of node label, set to the Node ID
@@ -29,7 +29,7 @@ class Node:
         self.rect_id = None
 
     def __str__(self):
-        return 'Node_{}({})'.format(self.ID, self.gain)
+        return 'Node_{}(g={}, b={})'.format(self.ID, self.gain, self.block_ID)
 
     def lock(self):
         self._locked = True
@@ -58,13 +58,13 @@ class Node:
         layout.block[self.block_ID].add_unlocked_node(self)
 
     def set_text(self, text=''):
-        """Set text label of Site."""
+        """Set text label on node rectangle."""
         # create canvas text if needed
         x, y = self.get_rect_center()
         self.text_id = canvas.create_text(x, y, text=text)
 
     def get_rect_center(self):
-        """Returns (x, y) coordinates of center of Site's canvas rectangle."""
+        """Returns (x, y) coordinates of center of Node's canvas rectangle."""
         x1, y1, x2, y2 = canvas.coords(self.rect_id) # get rect coords
         center_x = (x1 + x2) // 2
         center_y = (y1 + y2) // 2
@@ -85,6 +85,7 @@ class Net:
         self.distribution = [0, 0]
 
     def init_distribution(self):
+        self.distribution = [0, 0]
         for node in self.nodes:
             self.distribution[node.block_ID] += 1
 
@@ -98,6 +99,10 @@ class Block:
     def __init__(self, pmax):
         self._node_ids = set()
         self._bucket = BucketList(pmax)
+
+    def reset(self):
+        self._node_ids = set()
+        self._bucket.reset()
 
     def size(self):
         """Return number of nodes in block."""
@@ -138,6 +143,9 @@ class Block:
         """Return True if node is in the block, False otherwise."""
         return node.ID in self._node_ids
 
+    def copy_set(self):
+        return self._node_ids.copy()
+
 
 class Layout:
     """Class representing the chip layout."""
@@ -156,6 +164,10 @@ class Layout:
     def init_netlist(self):
         """Initialize netlist as an empty list."""
         self.netlist = []
+
+    def set_net_distribution(self):
+        for net in self.netlist:
+            net.init_distribution()
 
     def calculate_cutsize(self):
         """Caclulate cost of current placement."""
@@ -186,7 +198,7 @@ class Layout:
             self.init_netlist()
 
             # randomize net colours
-            #random.shuffle(colour_pool) FIXME
+            random.shuffle(colour_pool)
 
             # parse nets
             for net_id in range(self.nconnections):
@@ -264,22 +276,28 @@ def open_benchmark(*args):
 
 
 def partition(*args):
-    """Function called when pressing Place button.
+    """Function called when pressing Partition button.
 
-    Performs initial random placement."""
+    Partitions circuit using Kernighan-Lin."""
     print("partition")
 
     # create random initial partition
     initialize_partition()
+
+    set_initial_gains()
 
     # get initial cutsize
     layout.cutsize = layout.calculate_cutsize()
     cutsize_text.set(layout.cutsize)
     logging.info('initial cutsize = {}'.format(layout.cutsize))
 
+    # intialize best partition and mincut
+    layout.mincut = layout.cutsize
+    layout.best_partition = save_partition()
+
     gui.draw_canvas()
 
-    root.after(2000, KL_outer)
+    next_btn.state(['!disabled'])
 
 
 def initialize_partition():
@@ -289,46 +307,48 @@ def initialize_partition():
     # Generate a random list of node IDs
     rand_node_IDs = random.sample(range(layout.ncells), layout.ncells)
 
-    # assign nodes to alternating blocks
-    # FIXME
-    # for i, ID in enumerate(layout.nodelist):
-    #     node = layout.nodelist[ID]
-    #     node.block = i % 2
-    if layout.ncells % 2 == 0:
-        midpoint = layout.ncells // 2
-    else:
-        midpoint = layout.ncells // 2 + 1
-    for node in layout.nodelist:
-        if node.ID < midpoint:
-            node.block_ID = 0
-        else:
-            node.block_ID = 1
+    for i, node_ID in enumerate(rand_node_IDs):
+        node = layout.nodelist[node_ID]
+        node.block_ID = i % 2
 
-    # initialize net distribution
-    for net in layout.netlist:
-        net.init_distribution()
+    # # assign nodes to alternating blocks
+    # if layout.ncells % 2 == 0:
+    #     midpoint = layout.ncells // 2
+    # else:
+    #     midpoint = layout.ncells // 2 + 1
+    # for node in layout.nodelist:
+    #     if node.ID < midpoint:
+    #         node.block_ID = 0
+    #     else:
+    #         node.block_ID = 1
 
 
-def KL_outer():
-    print('KL_outer')
-    # step 1:
-    # - compute gain of all nodes
-    set_initial_gains()
+def KL_reset():
+    """Reset partition to best seen during pass."""
+    reset_saved_partition(layout.best_partition)
 
     gui.draw_canvas()
 
-    #root.after(2000, KL_inner(block=0)
-    next_btn.state(['!disabled'])
-
 
 def set_initial_gains():
-    """Set initial gain values for each node."""
+    """Set initial gain values for each node.
+    
+    Also does the following:
+        - sets net distribution
+        - unlocks all nodes
+        - adds nodes to blocks based on node.block_ID
+    """
     print('set_initial_gains')
+
+    # initialize net distributions
+    layout.set_net_distribution()
+
+    # initialize gain on each node
     for node in layout.nodelist:
         node.unlock()
         node.gain = 0
-        F = node.block_ID # "from" block
-        T = (node.block_ID + 1) % 2 # "to" block
+        F = node.block_ID # "from" block ID
+        T = (node.block_ID + 1) % 2 # "to" block ID
         for net in node.nets:
             if net.distribution[F] == 1:
                 node.gain += 1 # increment gain
@@ -354,20 +374,23 @@ def KL_inner():
     layout.cutsize -= base_node.gain
     print('cutsize = ', layout.cutsize)
 
-    # TODO find best move in the pass and start again from there
+    # if cutsize is the minimum for this pass, save partition
+    if layout.cutsize < layout.mincut:
+        layout.mincut = layout.cutsize
+        layout.best_partition = save_partition()
 
     gui.draw_canvas()
 
-    # return if all nodes are locked
-    if not layout.block[0].has_unlocked_nodes() and not layout.block[1].has_unlocked_nodes():
-        next_btn.state(['disabled'])
+    # continue while there are unlocked nodes
+    if layout.block[0].has_unlocked_nodes() or layout.block[1].has_unlocked_nodes():
+        root.after(10, KL_inner)
+    else:
+        root.after(10, KL_reset)
 
 
 def select_base_node():
     """Choose node to move based on gain and balance condition and return it."""
     print('select_base_node')
-    print('block 0 has {} nodes'.format(layout.block[0].size()))
-    print('block 1 has {} nodes'.format(layout.block[1].size()))
     # if equal number of nodes in each block
     if layout.block[0].size() == layout.block[1].size():
         # choose node with higher gain
@@ -393,8 +416,8 @@ def select_base_node():
 def move_node(node):
     print('move_node')
     """Move node to opposite block and update gains."""
-    F = node.block_ID # "from" block
-    T = (node.block_ID + 1) % 2 # "to" block
+    F = node.block_ID # "from" block ID
+    T = (node.block_ID + 1) % 2 # "to" block ID
     node.lock()
     node.block_ID = T
     layout.block[T].add_locked_node(node)
@@ -430,29 +453,59 @@ def move_node(node):
                     neighbour.adjust_gain(1)
 
 
+def save_partition():
+    """Return a saved partition.
+    
+    A saved partition consists of a list of node IDs for each block.
+    """
+    block0_IDs = list(layout.block[0].copy_set())
+    block1_IDs = list(layout.block[1].copy_set())
+    return [block0_IDs, block1_IDs]
+
+
+def reset_saved_partition(partition):
+    """Reset the layout data structures to a specific partition.
+    
+    All nodes are unlocked as a result and block data structures
+    are filled appropriately.
+    """
+    # reset block data structures
+    layout.block[0].reset()
+    layout.block[1].reset()
+
+    # set block ID for each node
+    for block, block_node_IDs in enumerate(partition):
+        for node_ID in block_node_IDs:
+            node = layout.nodelist[node_ID]
+            node.block_ID = block
+
+    # calculate initial gains and in doing so, fill the block data structures
+    set_initial_gains()
+
+    # update cutsize
+    layout.cutsize = layout.mincut
+    cutsize_text.set(layout.cutsize)
+    logging.info('best mincut seen for iteration = {}'.format(layout.cutsize))
+
+
 # GUI functions
 class GUI:
     def init_canvas(self):
         """Set canvas to appropriate size."""
-        self.rdim = 50 # rectangle dimensions
+        self.rdim = 25 # rectangle dimensions
         self.node_pad = 5 # padding between node rectangles
         self.x_pad = 50 # padding in x coordinate between partitions
         self.y_pad = 10 # padding from top and bottom of canvas
 
         max_cells_per_block = (layout.ncells // 2) + 2
-        print('max_cells_per_block =', max_cells_per_block)
         if max_cells_per_block > 25:
             self.nrows = math.ceil(math.sqrt(max_cells_per_block))
             self.ncols = math.ceil(max_cells_per_block / self.nrows)
         else:
             self.nrows = max_cells_per_block
             self.ncols = 1
-        print('nrows =', self.nrows)
-        print('ncols =', self.ncols)
         self.cw = 2 * (2*self.x_pad + self.ncols*self.rdim + (self.ncols - 1)*self.node_pad)
         self.ch = 2*self.y_pad + self.nrows*self.rdim + (self.nrows - 1)*self.node_pad
-        print('canvas w =', self.cw)
-        print('canvas h =', self.ch)
         canvas.config(width=self.cw, height=self.ch)
 
     def draw_canvas(self):
@@ -496,7 +549,7 @@ class GUI:
                 y[node.block_ID] = y2 + self.node_pad
 
             # Set text on rectangle to node ID
-            node.set_text('{}({})'.format(node.ID, node.gain))
+            #node.set_text('{}({})'.format(node.ID, node.gain))
 
 
     def draw_nets(self):
@@ -552,7 +605,7 @@ if __name__ == '__main__':
     partition_btn = ttk.Button(btn_frame, text="Partition", command=partition)
     partition_btn.grid(column=1, row=0, padx=5, pady=5)
     partition_btn.state(['disabled'])
-    next_btn = ttk.Button(btn_frame, text="Next", command=KL_inner)
+    next_btn = ttk.Button(btn_frame, text="Run Iteration", command=KL_inner)
     next_btn.grid(column=2, row=0, padx=5, pady=5)
     next_btn.state(['disabled'])
 

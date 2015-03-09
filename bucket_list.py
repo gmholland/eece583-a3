@@ -11,12 +11,12 @@ class BucketList:
         self._pmax = pmax
         self._count = 0
 
+    def reset(self):
+        self.__init__(self._pmax)
+
     def is_empty(self):
         """Return True if the bucket list is empty, False otherwise."""
-        if self._count == 0:
-            return True
-        else:
-            return False
+        return self._count == 0
 
     def add_node(self, node):
         """Add a node with initial gain to the Bucket List."""
