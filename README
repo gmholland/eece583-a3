@@ -1,0 +1,15 @@
+The partitioner for this assignment is implemented in Python using
+the Tkinter framework. It has been developed on Linux and requires
+Python 3.2.3 or higher and Tk 8.5. Python 3 is included in most Linux
+distributions and Tkinter is part of the Python Standard Library. The
+program should also run on Windows and Mac OS X assuming Python 3.2.3
+or higher is available, but this has not been tested.
+
+In order to run the program simply run the partition.py file with the 
+python3 interpreter.
+
+    python3 placer.py
+
+This opens the GUI where benchmark files can be opened with the "Open"
+button. Pressing the "Partition" button will run the partitioner on
+the opened circuit.
