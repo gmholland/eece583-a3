@@ -1,0 +1,128 @@
+= Functional Description of the Partitioner =
+This partitioning program uses a Fiduccia-Mattheyses / Kernighan-Lin
+(FM / KL) algorithm to partition a circuit among two blocks in attempt
+to minimize the number of nets that span both blocks. A GUI is used
+to display the progress of the partitioning algorithm. The GUI shows
+the nodes currently placed in each block, with "free" nodes in white
+and "locked" nodes (not considered for moves in the current iteration)
+nodes in light grey. Also displayed is a rats nest of nets connecting
+the nodes in the circuit. The GUI is updated on each move at a fairly
+high rate in order not to greatly impact the running time of program.
+Lastly, the current iteration and current minimum cut value.
+
+The main implementation of the partitioning algorithm is split into
+two functions: KL_inner() and KL_reset(). KL_inner() corresponds to
+the inner loop of the KL algorithm, while KL_reset() corresponds to
+the algorithm step where the layout is reset to the partition giving
+the minimum cutsize during the previous pass.
+
+The KL_inner() function operates by selecting a base node to move.
+The base node is chosen such that it has the highest gain value and
+will not violate the balancing criteria of each block containing no
+more than two nodes more than the other. Given nodes of equal gains
+and balanced moves, ties are broken by choosing randomly. Next the
+node is moved to the opposite block and the gains of the other nodes
+are recalculated. Using an intelligent data structure and method
+described in [1], the runtime of this gain recalculating step is
+reduced significantly. This method is described in more detail below
+in "Considerations for Faster Runtime". After the move, the current
+cutsize is updated using the gain of the node just moved. The cutsize
+is compared with the previous minimum cutsize for the current
+iteration and if we have reached a new minimum we save the state of
+the partition so we may return to this point for the next iteration.
+Finally, we check to see if there are unlocked nodes remaining and run
+KL_inner() again if so.
+
+KL_reset() is used to restore the state of the lowest cutsize obtained
+in the previous run of KL_inner(). This function unlocks all nodes and
+resets the data structures so that another iteration of KL_inner()
+calls may be performed.
+
+The program performs up to 6 full iterations of KL_inner() and
+KL_reset(). In order to save time doing needless additional
+iterations, the program monitors the improvement of the minimum
+cutsize seen between iterations and stops if there is no reduction in
+consecutive iterations.
+
+= Handling Multi-Terminal Nets =
+This implementation follows very closely, the implementation of the FM
+algorithm as described in [1]. In that work, the authors defined a
+net's "distribution" as a tuple: (A(n), B(n)) where A(n) is the number
+of nodes connected to the net in the first block and B(n) is the
+number of nodes in the second block. The authors also define a
+"critical net" as a net that has a node that if moved would change the
+net's cut state (whether it is cut or not). The authors make the
+observation that a net is critical if in its distribution, either A(n)
+or B(n) is equal to 0 or 1.
+
+= Considerations for Faster Runtime =
+The main contribution of [1] is a clever implementation of the KL
+algorithm that operates in linear time for each iteration. 
+Specifically, the authors define P as the total number of pins in the
+circuit. The authors present an implementation that is O(P) per
+iteration. The authors observe that the main work involved in the
+inner loop is selecting an appropriate base node, moving it to the
+other block and updating the gains of each of the neighbour nodes
+(nodes that connected to the base node via a net.) If done naively,
+this operation is worse than O(P^2). 
+
+To efficiently select a base node (that with the highest gain value)
+this implementation follows [1] by using a bucket array of possible
+gain values (these gain values range from -pmax to pmax, where pmax is
+the maximum number of pins across all nodes. Each index in the array
+(or "bucket" contains a list of nodes that have their gain equal to
+that index. The use of such a structure allows selecting a base node
+in constant time.
+
+The authors of [1] also give routines for efficiently updating the
+gains of all neighbour nodes of the base cell. Essentially the various
+updates are turned into a series of gain increments and decrements.
+This combined with the fact tat only critical nets need to have their
+node gains updated allows implementing this step also in linear time.
+
+= Table of Results =
+The following table shows the minimum cut that was obtained with the
+partitioner for each of the benchmark circuits:
+
+    ------------------------
+    | Benchmark   | Mincut |
+    ========================
+    | alu2        | 47     |
+    ------------------------
+    | apex1       | 164    |
+    ------------------------
+    | apex4       | 291    |
+    ------------------------
+    | C880        | 36     |
+    ------------------------
+    | cm138a      | 4      |
+    ------------------------
+    | cm150a      | 6      |
+    ------------------------
+    | cm151a      | 6      |
+    ------------------------
+    | cm162a      | 6      |
+    ------------------------
+    | cps         | 141    |
+    ------------------------
+    | e64         | 85     |
+    ------------------------
+    | paira/pairb | 116    |
+    ------------------------
+
+    Average Mincut = 82
+
+= How to Run the Program =
+A README file containing instructions on how to run the partitioning
+program is included with this report.
+
+= GitHub =
+All of the source code, this report document and the README file are
+available in a git repository hosted on GitHub at the following address:
+
+    https://github.com/gmholland/eece583-a3
+
+= References =
+[1] C. M. Fiduccia and R. M. Mattheyses, "A Linear-Time Heuristic for
+    Improving Network Partitions," 19th Conference on Design
+    Automation, 1982, pp. 175-181.
