@@ -268,10 +268,6 @@ def open_benchmark(*args):
     if not openfilename:
         return
 
-    # setup logfile
-    logfilename = os.path.basename(openfilename) + '.log'
-    logging.basicConfig(filename=logfilename, filemode='w', level=logging.INFO)
-
     logging.info("opened benchmark:{}".format(openfilename))
     filename.set(os.path.basename(openfilename))
     layout.parse_netlist(openfilename)
@@ -585,6 +581,10 @@ class GUI:
 if __name__ == '__main__':
     # set random number generator seed 
     random.seed(0)
+
+    # setup logfile
+    logfilename = 'partition.log'
+    logging.basicConfig(filename=logfilename, filemode='w', level=logging.INFO)
 
     # chip layout
     layout = Layout()
